@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "sls:package": "serverless package -s dev"
+    "sls:package": "serverless package -s dev",
+    "sls:deploy": "serverless deploy -s dev"
   },
   "author": "",
   "license": "ISC",
@@ -14,6 +15,7 @@
     "@aws-sdk/client-sqs": "^3.204.0",
     "@aws-sdk/util-dynamodb": "^3.199.0",
     "aws-lambda": "^1.0.7",
+    "axios": "^1.2.0",
     "global": "^4.4.0",
     "moment": "^2.29.4",
     "serverless-plugin-dynamodb-autoscaling": "^3.1.0"

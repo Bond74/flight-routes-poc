@@ -1,4 +1,4 @@
-service: vm-${self:custom.appName}
+service: ${self:custom.appName}
 
 provider:
   name: aws
@@ -7,7 +7,7 @@ provider:
   stage: ${opt:stage, self:custom.defaultStage}
   deploymentBucket: vm-serverlessdeploymentbucket-${self:provider.region}
   iam:
-    role: vm-lambda-role
+    role: arn:aws:iam::${aws:accountId}:role/vm-lambda-role
   timeout: 300
   versionFunctions: false
   stackTags:
@@ -22,6 +22,7 @@ provider:
   environment:
     stage: ${self:provider.stage}
     region: ${self:provider.region}
+    routesTable: ${self:custom.dynamoTableName}
 
 plugins:
   - serverless-webpack
@@ -30,7 +31,9 @@ plugins:
 
 custom:
   gitDescription: ${git:repository} - ${git:branch} - ${git:tags}
-  appName: vm-export-poc
+  appName: vm-flight-routes
+  dynamoTableName: ${self:custom.appName}-${self:provider.stage}
+  aggregationStartSQS: !Ref AggregationStart
   defaultStage: dev
   syncRateMinutes: 10
   webpack:
@@ -41,12 +44,14 @@ custom:
   dynamodbAutoscaling:
     tablesConfig:
       FlightRoutesTable: true
+      minCapacity: 25
       maxCapacity: 1000
 
 functions:
   getRoutes:
     handler: src/handlers.getRoutesHandler
     description: ${self:custom.gitDescription}
+    timeout: 30
     events:
       - http:
           path: routes
@@ -57,8 +62,7 @@ functions:
     handler: src/handlers.aggregateRoutesHandler
     description: ${self:custom.gitDescription}
     environment:
-      sourceEndpoints: https://zretmlbsszmm4i35zrihcflchm0ktwwj.lambda-url.eu-central-1.on.aws/provider/flights1,https://zretmlbsszmm4i35zrihcflchm0ktwwj.lambda-url.eu-central-1.on.aws/provider/flights2
-      extendedLogging: false
+      ttlSeconds: 3600 # 1 hour
     events:
       - sqs:
           arn:
@@ -68,10 +72,12 @@ functions:
           batchSize: 1
 
   cloudWatchScheduler:
-    handler: src/handlers.cloudWatchScheduler
+    handler: src/handlers.cloudWatchSchedulerHandler
     description: ${self:custom.gitDescription}
     environment:
+      sourceEndpoints: https://zretmlbsszmm4i35zrihcflchm0ktwwj.lambda-url.eu-central-1.on.aws/provider/flights1,https://zretmlbsszmm4i35zrihcflchm0ktwwj.lambda-url.eu-central-1.on.aws/provider/flights2
       syncRateMinutes: ${self:custom.syncRateMinutes}
+      sqsUrl: ${self:custom.aggregationStartSQS}
     events:
       - schedule: rate(${self:custom.syncRateMinutes} minutes)
 
@@ -80,13 +86,13 @@ resources:
     AggregationStart:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: vm-${self:custom.appName}-${self:provider.stage}-aggregations
-        VisibilityTimeout: 900
+        QueueName: ${self:custom.appName}-aggregations-${self:provider.stage}
+        VisibilityTimeout: 300
 
     FlightRoutesTable:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: vm-${self:custom.appName}-${self:provider.stage}-flight-routes
+        TableName: ${self:custom.dynamoTableName}
         AttributeDefinitions:
           - AttributeName: id
             AttributeType: S
@@ -95,7 +101,7 @@ resources:
             KeyType: HASH
         ProvisionedThroughput:
           ReadCapacityUnits: 25 
-          WriteCapacityUnits: 10
+          WriteCapacityUnits: 25
         TimeToLiveSpecification:
           AttributeName: ttl
           Enabled: true
