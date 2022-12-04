@@ -60,8 +60,10 @@ export class DynamoRoutesAggregator implements IFlightRoutesAggregator {
         const pageItems: IRoute[] =  (page?.Items?.map(item => this.normalizeDbItem(item))) || [];
         routes.push(...pageItems);
         console.log("Items in scanned page ", pageItems.length);
+      };
+      if(routes.length) {
+        CacheProvider.set<IRoute[]>(AGGREGATION_CACHE_KEY, routes, CACHE_TTL_SECONDS);
       }
-      CacheProvider.set<IRoute[]>(AGGREGATION_CACHE_KEY, routes, CACHE_TTL_SECONDS);
       return routes;
     } catch (err) {
       console.error(inspect(err, false, null));
