@@ -32,11 +32,9 @@ export const aggregateRoutesHandler = async (event: SQSEvent): Promise<void> => 
 };
 
 export const getRoutesHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  const start = event.pathParameters?.start;
   const aggregator = getRoutesAggregator(config.aggregatorType);
-
   try {
-    const data = await aggregator.getRoutes(start);
+    const data = await aggregator.getRoutes();
     return {
       statusCode: 200,
       body: JSON.stringify(data)

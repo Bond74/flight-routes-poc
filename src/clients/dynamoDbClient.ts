@@ -1,5 +1,5 @@
 import { inspect } from "util";
-import { DynamoDBClient, PutItemCommand, ScanCommand, ScanCommandInput } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, PutItemCommand, ScanCommand, ScanCommandInput, paginateScan } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import {
   ROUTES_TABLE_NAME,
@@ -39,26 +39,31 @@ export class DynamoRoutesAggregator implements IFlightRoutesAggregator {
     }
   }
 
-  public async getRoutes(start: string | undefined): Promise<IRoute[]> {
+  public async getRoutes(): Promise<IRoute[]> {
+    console.log("Trying to get routes from cache...");
     const cachedItems = CacheProvider.get<IRoute[]>(AGGREGATION_CACHE_KEY);
     if (cachedItems) {
-      console.log("Taking cached routes in lambda execution context");
+      console.log("Taking cached routes from lambda execution context");
       return cachedItems
     };
+    console.log("No cache found");
 
     const params: ScanCommandInput = {
-      TableName: "ROUTES_TABLE_NAME",
-      ExpressionAttributeValues: {
-        ":start": { S: start || "" }
-      },
-      FilterExpression: "sourceAirport = :start",
-      ...(start ? { FilterExpression: "#sourceAirport = :start" } : {})
+      TableName: ROUTES_TABLE_NAME
     };
 
+    console.log("Getting routes from db table ", ROUTES_TABLE_NAME);
+    const routes: IRoute[] = [];
     try {
-      const data = await this.db.send(new ScanCommand(params));
-      const routes = data?.Items?.map(item => unmarshall(item) as IRoute) || [];
-      console.log("Number or routes retrieved from Dynamo: ", routes.length);
+      const paginator = paginateScan({ client: this.db }, params);
+      let pages = 0;
+      for await(const page of paginator) {
+        const pageItems: IRoute[] =  (page?.Items?.map(item => unmarshall(item) as IRoute)) || [];
+        routes.push(...pageItems);
+        console.log("Items in scann page ", pageItems.length);
+        ++pages;
+      }
+      console.log("Number of pages scanned", pages);
       CacheProvider.set<IRoute[]>(AGGREGATION_CACHE_KEY, routes, CACHE_TTL_SECONDS);
       return routes;
     } catch (err) {
@@ -71,4 +76,4 @@ export class DynamoRoutesAggregator implements IFlightRoutesAggregator {
     const now = Math.floor(Date.now() / 1000);
     return now + DYNAMO_DB_TTL_SECONDS; // now + 1 hour by default
   }
-}
+}  
