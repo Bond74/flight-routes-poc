@@ -1,7 +1,4 @@
-interface ICacheItem {
-    value: unknown;
-    expiresAt: number;
-}
+import { ICacheItem } from "../interfaces/ICacheItem";
 
 export class CacheProvider {
     private static storage = new Map<string, ICacheItem>();

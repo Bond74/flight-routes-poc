@@ -1,4 +1,6 @@
 import { inspect } from "util";
+import { Buffer } from "buffer";
+import { gzipSync } from "zlib";
 import { APIGatewayProxyEvent, APIGatewayProxyResult, SQSEvent } from "aws-lambda";
 import { ConfigProvider } from "./clients/configProvider";
 import { DynamoRoutesAggregator } from "./clients/dynamoDbClient";
@@ -6,13 +8,14 @@ import { RoutesAggregatorTypes } from "./infrastructure/types";
 import { RoutesApiClient } from "./clients/routesApiClient";
 import { SqsClient } from "./clients/sqsClient";
 
+
 const config = new ConfigProvider().getConfig();
 
 export const aggregateRoutesHandler = async (event: SQSEvent): Promise<void> => {
   const { endpoint } = JSON.parse(event.Records[0].body);
   console.log("Endpoint to aggregate: ", endpoint);
 
-  const routesApi = new RoutesApiClient(endpoint.stringValue as string);
+  const routesApi = new RoutesApiClient;
   const aggregator = getRoutesAggregator(config.aggregatorType);
   
   const routes = await routesApi.getRoutes(endpoint); // Lambda may retry to retrieve routes from API on error (in 2 minutes)
@@ -35,9 +38,16 @@ export const getRoutesHandler = async (event: APIGatewayProxyEvent): Promise<API
   const aggregator = getRoutesAggregator(config.aggregatorType);
   try {
     const data = await aggregator.getRoutes();
+    const buf = Buffer.from(JSON.stringify(data));
+    const compressed = gzipSync(buf);
     return {
       statusCode: 200,
-      body: JSON.stringify(data)
+      body: compressed.toString("base64"),
+      isBase64Encoded: true,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip"
+      }
     };
   } catch (error) {
     return handleError(500, error);

@@ -1,5 +1,5 @@
 import { inspect } from "util";
-import { DynamoDBClient, PutItemCommand, ScanCommand, ScanCommandInput, paginateScan } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, PutItemCommand, ScanCommandInput, paginateScan, AttributeValue } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import {
   ROUTES_TABLE_NAME,
@@ -56,14 +56,11 @@ export class DynamoRoutesAggregator implements IFlightRoutesAggregator {
     const routes: IRoute[] = [];
     try {
       const paginator = paginateScan({ client: this.db }, params);
-      let pages = 0;
       for await(const page of paginator) {
-        const pageItems: IRoute[] =  (page?.Items?.map(item => unmarshall(item) as IRoute)) || [];
+        const pageItems: IRoute[] =  (page?.Items?.map(item => this.normalizeDbItem(item))) || [];
         routes.push(...pageItems);
-        console.log("Items in scann page ", pageItems.length);
-        ++pages;
+        console.log("Items in scanned page ", pageItems.length);
       }
-      console.log("Number of pages scanned", pages);
       CacheProvider.set<IRoute[]>(AGGREGATION_CACHE_KEY, routes, CACHE_TTL_SECONDS);
       return routes;
     } catch (err) {
@@ -75,5 +72,12 @@ export class DynamoRoutesAggregator implements IFlightRoutesAggregator {
   private getTtl(): number {
     const now = Math.floor(Date.now() / 1000);
     return now + DYNAMO_DB_TTL_SECONDS; // now + 1 hour by default
-  }
+  };
+
+  private normalizeDbItem (item: Record<string, AttributeValue>): IRoute {
+    const routeItem = unmarshall(item);
+    delete routeItem["id"];
+    delete routeItem["ttl"];
+    return routeItem as IRoute
+  };
 }  

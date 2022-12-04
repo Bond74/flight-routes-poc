@@ -2,10 +2,6 @@ import { IRoute } from "../interfaces/IRoute";
 import axios, { AxiosRequestConfig, AxiosError } from "axios";
 
 export class RoutesApiClient {
-    private endpoint: string;
-    public constructor (ep: string) {
-        this.endpoint = ep;
-    }
 
     public async getRoutes(url: string): Promise<IRoute[]> {
       const requestConfig: AxiosRequestConfig = {
