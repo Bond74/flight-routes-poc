@@ -1,0 +1,122 @@
+service: ${self:custom.appName}
+
+provider:
+  name: aws
+  runtime: nodejs14.x
+  region: eu-west-1
+  stage: ${opt:stage, self:custom.defaultStage}
+  deploymentBucket: vm-serverlessdeploymentbucket-${self:provider.region}
+  iam:
+    role: arn:aws:iam::${aws:accountId}:role/vm-lambda-role
+  timeout: 300
+  versionFunctions: false
+  stackTags:
+    # Git tags
+    GIT_REPOSITORY: "${git:repository}"
+    GIT_EMAIL: "${git:email}"
+    GIT_COMMIT_LONG: "${git:commit}"
+    GIT_COMMIT_SHORT: "${git:sha1}"
+    GIT_TAGS: "${git:tags}"
+    GIT_BRANCH: "${git:branch}"
+    GIT_IS_DIRTY: "${git:isDirty}"
+  environment:
+    stage: ${self:provider.stage}
+    region: ${self:provider.region}
+    routesTable: ${self:custom.dynamoTableName}
+
+plugins:
+  - serverless-webpack
+  - serverless-plugin-git-variables
+  - serverless-plugin-dynamodb-autoscaling
+
+custom:
+  gitDescription: ${git:repository} - ${git:branch} - ${git:tags}
+  appName: vm-flight-routes
+  dynamoTableName: ${self:custom.appName}-${self:provider.stage}
+  aggregationStartSQS: !Ref AggregationStart
+  defaultStage: dev
+  syncRateMinutes: 10
+  webpack:
+    packager: yarn
+    webpackConfig: webpack.config.js
+    includeModules:
+      packagePath: package.json
+  dynamodbAutoscaling:
+    tablesConfig:
+      FlightRoutesTable:
+        table:
+          minCapacity: 25
+          maxCapacity: 1000
+          targetUsage: 0.5
+
+functions:
+  getRoutes:
+    handler: src/handlers.getRoutesHandler
+    description: ${self:custom.gitDescription}
+    cors: true
+    timeout: 30
+    environment:
+      cacheTtlSeconds: 600 # 10 min
+    events:
+      - http:
+          path: routes
+          method: get
+
+  aggregateRoutes:
+    handler: src/handlers.aggregateRoutesHandler
+    description: ${self:custom.gitDescription}
+    environment:
+      dbTtlSeconds: 3600 # 1 hour
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - AggregationStart
+              - Arn
+          batchSize: 1
+
+  cloudWatchScheduler:
+    handler: src/handlers.cloudWatchSchedulerHandler
+    description: ${self:custom.gitDescription}
+    environment:
+      sourceEndpoints: https://zretmlbsszmm4i35zrihcflchm0ktwwj.lambda-url.eu-central-1.on.aws/provider/flights1,https://zretmlbsszmm4i35zrihcflchm0ktwwj.lambda-url.eu-central-1.on.aws/provider/flights2
+      syncRateMinutes: ${self:custom.syncRateMinutes}
+      sqsUrl: ${self:custom.aggregationStartSQS}
+    events:
+      - schedule: rate(${self:custom.syncRateMinutes} minutes)
+
+resources:
+  Resources:
+    AggregationStart:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.appName}-aggregations-${self:provider.stage}
+        VisibilityTimeout: 300 # 5 min
+        RedrivePolicy:
+          deadLetterTargetArn:
+            Fn::GetAtt:
+            - DlqSQSQueue
+            - Arn
+          maxReceiveCount: 1
+    DlqSQSQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.appName}-aggregations-dlq-${self:provider.stage}
+        MessageRetentionPeriod: 1209600 # 14 days stays messages in DLQ
+
+    FlightRoutesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.dynamoTableName}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 25 
+          WriteCapacityUnits: 25
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
