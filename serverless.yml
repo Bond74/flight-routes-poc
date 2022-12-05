@@ -35,7 +35,7 @@ custom:
   dynamoTableName: ${self:custom.appName}-${self:provider.stage}
   aggregationStartSQS: !Ref AggregationStart
   defaultStage: dev
-  syncRateMinutes: 10
+  syncRateMinutes: 600
   webpack:
     packager: yarn
     webpackConfig: webpack.config.js
@@ -45,15 +45,14 @@ custom:
     tablesConfig:
       FlightRoutesTable:
         table:
-          minCapacity: 25
-          maxCapacity: 1000
+          minCapacity: 100
+          maxCapacity: 4000
           targetUsage: 0.5
 
 functions:
   getRoutes:
     handler: src/handlers.getRoutesHandler
     description: ${self:custom.gitDescription}
-    cors: true
     timeout: 30
     environment:
       cacheTtlSeconds: 600 # 10 min
@@ -66,7 +65,7 @@ functions:
     handler: src/handlers.aggregateRoutesHandler
     description: ${self:custom.gitDescription}
     environment:
-      dbTtlSeconds: 3600 # 1 hour
+      dbTtlSeconds: 86400 # 1 day
     events:
       - sqs:
           arn:
@@ -115,8 +114,8 @@ resources:
           - AttributeName: id
             KeyType: HASH
         ProvisionedThroughput:
-          ReadCapacityUnits: 25 
-          WriteCapacityUnits: 25
+          ReadCapacityUnits: 100
+          WriteCapacityUnits: 100
         TimeToLiveSpecification:
           AttributeName: ttl
           Enabled: true
