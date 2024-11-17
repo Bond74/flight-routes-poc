@@ -2,12 +2,25 @@ service: ${self:custom.appName}
 
 provider:
   name: aws
-  runtime: nodejs14.x
+  runtime: nodejs20.x
   region: eu-west-1
   stage: ${opt:stage, self:custom.defaultStage}
-  deploymentBucket: vm-serverlessdeploymentbucket-${self:provider.region}
+  deploymentBucket: vm-slsdeploymentbucket-${self:provider.region}
+  # iam:
+    # role: !Ref IamRoleLambdaExecution
   iam:
-    role: arn:aws:iam::${aws:accountId}:role/vm-lambda-role
+    role:
+      name: custom-role-name
+      path: /
+      statements:
+        - Effect: 'Allow'
+          Resource: 
+            - 'arn:aws:lambda:::${self:custom.appName}*'
+            - 'arn:aws:apigateway:::${self:custom.appName}*'
+          Action: 
+            - 'sqs:*'
+            - 'dynamodb:*'
+            - 'cloudwatch:*'
   timeout: 300
   versionFunctions: false
   stackTags:
@@ -33,7 +46,8 @@ custom:
   gitDescription: ${git:repository} - ${git:branch} - ${git:tags}
   appName: vm-flight-routes
   dynamoTableName: ${self:custom.appName}-${self:provider.stage}
-  aggregationStartSQS: !Ref AggregationStart
+  # aggregationStartSQS: !Ref AggregationStart
+  aggregationStartSQS: AggregationStart
   defaultStage: dev
   syncRateMinutes: 10
   webpack:
